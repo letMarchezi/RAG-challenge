@@ -1,8 +1,9 @@
-import os
-import streamlit as st
-from routers import get_available_models, upload_documents, ask_question
 import logging
 import time
+
+import streamlit as st
+from routers import ask_question, get_available_models, upload_documents
+
 st.set_page_config(page_title="RAG System")
 
 # Minimal CSS: font, title color, button color, and input background
@@ -40,6 +41,19 @@ h2, .stMarkdown h2, h3, .stMarkdown h3 { color: #2563EB; }
   border-radius: 8px;
 }
 
+/* Dark mode adjustments: when app background is dark, make dropdown boxes darker and text legible */
+@media (prefers-color-scheme: dark) {
+  :root { --field-bg: #1F2937; }
+  .stTextInput > div > div,
+  .stTextArea > div > div,
+  .stSelectbox > div > div,
+  [data-testid="stFileUploadDropzone"] {
+    background-color: var(--field-bg) !important;
+    border-color: #374151; /* gray-700 */
+  }
+  .stSelectbox > div > div, .stTextInput input, .stTextArea textarea { color: #E5E7EB !important; }
+}
+
 /* Blue edges on focus/hover */
 .stTextInput > div > div:focus-within,
 .stTextArea > div > div:focus-within,
@@ -65,18 +79,21 @@ h2, .stMarkdown h2, h3, .stMarkdown h3 { color: #2563EB; }
     unsafe_allow_html=True,
 )
 
-st.title("Document Q&A System")
-st.caption("Upload the desired Pdf files, process to generate embeddings, select the LLM provider and model, and ask questions about the documents.")
-
+st.title(":blue[Document Q&A System]")
+st.caption(
+    "Upload the desired Pdf files, process to generate embeddings, select the LLM provider and model, and ask questions about the documents."
+)
 # Initialize session state for storing upload status
-if 'documents_uploaded' not in st.session_state:
+if "documents_uploaded" not in st.session_state:
     st.session_state.documents_uploaded = False
-if 'current_doc_ids' not in st.session_state:
+if "current_doc_ids" not in st.session_state:
     st.session_state.current_doc_ids = []
 
 # File upload section
-st.header("1. Upload Documents")
-uploaded_files = st.file_uploader("Choose PDF file(s)", type="pdf", accept_multiple_files=True)
+st.header(":blue[1. Upload Documents]", divider="blue")
+uploaded_files = st.file_uploader(
+    "Choose PDF file(s)", type="pdf", accept_multiple_files=True
+)
 
 if uploaded_files:
     if st.button("Process Documents"):
@@ -86,7 +103,9 @@ if uploaded_files:
             if result.get("error"):
                 st.error(f"Upload failed: {result['error']}")
                 if result.get("status_code"):
-                    st.code(f"Status: {result['status_code']}\nBody: {result.get('text','')}")
+                    st.code(
+                        f"Status: {result['status_code']}\nBody: {result.get('text','')}"
+                    )
                 logging.error(f"Upload failed: {result['error']}")
             else:
                 st.session_state.documents_uploaded = True
@@ -103,16 +122,18 @@ if uploaded_files:
                     st.caption(
                         f"Retrieval will search only: {', '.join(st.session_state.current_doc_ids)}"
                     )
-                    logging.info(f"Documents uploaded successfully: {st.session_state.current_doc_ids}")
+                    logging.info(
+                        f"Documents uploaded successfully: {st.session_state.current_doc_ids}"
+                    )
 
 # Question answering section
-st.header("2. Ask Questions")
+st.header(":blue[2. Ask Questions]", divider="blue")
 
 # LLM provider selection
 llm_provider = st.selectbox(
     "Select LLM Provider",
     ["openai", "gemini"],
-    help="Choose which LLM provider to use for answering questions"
+    help="Choose which LLM provider to use for answering questions",
 )
 
 model_options = get_available_models()[llm_provider]
@@ -131,7 +152,9 @@ if question:
     else:
         if st.button("Get Answer"):
             with st.spinner("Generating answer..."):
-                logging.info(f"Generating answer with the model: {model} for question: {question}")
+                logging.info(
+                    f"Generating answer with the model: {model} for question: {question}"
+                )
                 start_time = time.perf_counter()
                 result = ask_question(
                     question,
@@ -144,7 +167,9 @@ if question:
                     st.error(f"Request failed: {result['error']}")
                     logging.error(f"Request failed: {result['error']}")
                     if result.get("status_code"):
-                        st.code(f"Status: {result['status_code']}\nBody: {result.get('text','')}")
+                        st.code(
+                            f"Status: {result['status_code']}\nBody: {result.get('text','')}"
+                        )
                 else:
                     logging.info(f"Answer succesfuly generated: {result['answer']}")
                     st.subheader("Answer:")
@@ -153,5 +178,20 @@ if question:
                     if result.get("references"):
                         with st.expander(f"References"):
                             st.write(result["references"])
-                            
+                    if result.get("citations"):
+                        with st.expander("Citations"):
+                            for c in result["citations"]:
+                                doc_id = c.get("document_id")
+                                page = c.get("page")
+                                score = c.get("score")
+                                snippet = c.get("snippet", "")
+                                st.markdown(
+                                    f"- File: `{doc_id}` • Page: {page} • Score: {score}"
+                                )
+                                if snippet:
+                                    st.caption(
+                                        snippet[:300]
+                                        + ("…" if len(snippet) > 300 else "")
+                                    )
+
 st.caption("Developed by Leticia Bossatto Marchezi")

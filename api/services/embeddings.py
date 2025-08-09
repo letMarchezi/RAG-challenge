@@ -1,14 +1,17 @@
 import logging
-from typing import List, Dict, Optional
-import re
-from io import BytesIO
-from pypdf import PdfReader
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_community.vectorstores import FAISS
-from langchain_core.embeddings import Embeddings as LangChainEmbeddings
-from langchain_core.documents import Document
-from openai import OpenAI
 import os
+import re
+import time
+from io import BytesIO
+from typing import Any, Dict, List
+
+from langchain_community.vectorstores import FAISS
+from langchain_core.documents import Document
+from langchain_core.embeddings import Embeddings as LangChainEmbeddings
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from openai import OpenAI
+from pypdf import PdfReader
+
 
 class OpenAIEmbeddingsDirect(LangChainEmbeddings):
     """LangChain-compatible embeddings wrapper using the official OpenAI SDK.
@@ -60,14 +63,18 @@ class EmbeddingsService:
         os.makedirs(self.index_path, exist_ok=True)
 
         # Embedding model via official OpenAI SDK
-        embedding_model_name = os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
+        embedding_model_name = os.getenv(
+            "OPENAI_EMBEDDING_MODEL", "text-embedding-3-small"
+        )
         self.embeddings = OpenAIEmbeddingsDirect(model=embedding_model_name)
 
         # Try loading an existing FAISS index if present
         if any(fname.endswith(".faiss") for fname in os.listdir(self.index_path)):
             # allow_dangerous_deserialization=True is required when running inside Docker/
             # constrained environments where pickle safety checks are strict.
-            logging.info(f"[EmbeddingsService] Loading existing FAISS index from {self.index_path}")
+            logging.info(
+                f"[EmbeddingsService] Loading existing FAISS index from {self.index_path}"
+            )
             self.vector_store = FAISS.load_local(
                 self.index_path,
                 self.embeddings,
@@ -82,13 +89,13 @@ class EmbeddingsService:
             chunk_overlap=300,
             length_function=len,
         )
-    
+
     def process_pdf(self, file_content: bytes, filename: str) -> Dict:
         """Process one PDF file and persist its own FAISS index under a file-specific folder.
-        
+
         Args:
             file_content: Bytes content of the PDF file
-            
+
         Returns:
             Dict containing processing statistics
         """
@@ -128,9 +135,7 @@ class EmbeddingsService:
         # DEBUG: visualize chunks
         logging.info(f"[EmbeddingsService] Total pages loaded: {len(docs)}")
         logging.info(f"[EmbeddingsService] Total non-empty chunks: {len(chunks)}")
-        for i, d in enumerate(chunks):
-            preview = d.page_content[:500]
-            logging.info(f"\n[Chunk {i}] length={len(d.page_content)}\n{preview}\n---")
+
 
         # If nothing extracted, return early
         if not chunks:
@@ -153,38 +158,54 @@ class EmbeddingsService:
             "total_chunks": len(chunks),
             "index_path": doc_dir,
         }
-    
+
     def similarity_search(
         self,
         query: str,
         k: int = 5,
-        document_ids: Optional[List[str]] = None,
-    ) -> List[str]:
+        document_ids: List[str] = None,
+    ) -> List[Dict[str, Any]]:
         """Search across stored FAISS indexes for similar chunks.
 
         Args:
             query: Search query string
             k: Number of documents to return
-            document_ids: Optional list of document directory names (stems)
-                to restrict the search to. When None, searches all indexes.
+            document_ids: Required list of document directory names (stems)
+                to restrict the search to. If empty, searches none.
 
         Returns:
-            List of relevant document contents
+            List of dicts with content and metadata: {"snippet", "document_id", "page", "score"}
         """
+
+        logging.info(
+            "[EmbeddingsService] similarity_search k=%s, doc_ids=%s, query='%s'",
+            k,
+            document_ids or [],
+            (query[:120] + ("…" if len(query) > 120 else "")),
+        )
+
         if not os.path.isdir(self.index_path):
             return []
 
-        # Gather candidate document directories
+        # Build candidate entries
         candidate_entries: List[str] = []
-        for entry in os.listdir(self.index_path):
-            doc_dir = os.path.join(self.index_path, entry)
-            if os.path.isdir(doc_dir):
-                candidate_entries.append(entry)
+        try:
+            for entry in os.listdir(self.index_path):
+                doc_dir = os.path.join(self.index_path, entry)
+                if os.path.isdir(doc_dir):
+                    candidate_entries.append(entry)
+        except Exception as exc:
+            logging.error("[EmbeddingsService] listdir failed: %s", exc)
+            candidate_entries = []
 
-        # Optionally restrict to a provided subset
-        if document_ids:
-            allowed = set(document_ids)
-            candidate_entries = [e for e in candidate_entries if e in allowed]
+        # Restrict strictly to provided document_ids (empty list → search none)
+        allowed = set(document_ids or [])
+        candidate_entries = [e for e in candidate_entries if e in allowed]
+        logging.info(
+            "[EmbeddingsService] candidate_indexes=%d (%s)",
+            len(candidate_entries),
+            ", ".join(candidate_entries[:10]),
+        )
 
         aggregated: List = []
         for entry in candidate_entries:
@@ -198,13 +219,38 @@ class EmbeddingsService:
                     doc_dir, self.embeddings, allow_dangerous_deserialization=True
                 )
                 docs_with_scores = store.similarity_search_with_score(query, k=k)
-                aggregated.extend(docs_with_scores)
+                # Preserve the document_id (entry) with each result
+                aggregated.extend(
+                    [(entry, doc, score) for doc, score in docs_with_scores]
+                )
+                logging.info(
+                    "[EmbeddingsService] index='%s' hits=%d",
+                    entry,
+                    len(docs_with_scores),
+                )
             except Exception as exc:
                 logging.error(
                     f"[EmbeddingsService] Failed loading index at {doc_dir}: {exc}"
                 )
 
-        aggregated.sort(key=lambda pair: pair[1])  # ascending
+        aggregated.sort(key=lambda triple: triple[2])  # ascending by score
         top_k = aggregated[:k]
-        return [doc.page_content for doc, _ in top_k]
+        structured: List[Dict[str, Any]] = []
+        for document_id, doc, score in top_k:
+            try:
+                page_meta = None
+                if isinstance(getattr(doc, "metadata", None), dict):
+                    page_meta = doc.metadata.get("page")
+            except Exception:
+                page_meta = None
 
+            structured.append(
+                {
+                    "snippet": doc.page_content,
+                    "document_id": document_id,
+                    "page": page_meta,
+                    "score": float(score) if hasattr(score, "__float__") else score,
+                }
+            )
+
+        return structured
