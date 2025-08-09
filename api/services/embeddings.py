@@ -1,5 +1,5 @@
 import logging
-from typing import List, Dict
+from typing import List, Dict, Optional
 import re
 from io import BytesIO
 from pypdf import PdfReader
@@ -60,7 +60,7 @@ class EmbeddingsService:
         os.makedirs(self.index_path, exist_ok=True)
 
         # Embedding model via official OpenAI SDK
-        embedding_model_name = "text-embedding-3-small"
+        embedding_model_name = os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
         self.embeddings = OpenAIEmbeddingsDirect(model=embedding_model_name)
 
         # Try loading an existing FAISS index if present
@@ -154,25 +154,41 @@ class EmbeddingsService:
             "index_path": doc_dir,
         }
     
-    def similarity_search(self, query: str, k: int = 5) -> List[str]:
-        """Search across all stored FAISS indexes for similar chunks
-        
+    def similarity_search(
+        self,
+        query: str,
+        k: int = 5,
+        document_ids: Optional[List[str]] = None,
+    ) -> List[str]:
+        """Search across stored FAISS indexes for similar chunks.
+
         Args:
             query: Search query string
             k: Number of documents to return
-            
+            document_ids: Optional list of document directory names (stems)
+                to restrict the search to. When None, searches all indexes.
+
         Returns:
             List of relevant document contents
         """
-        # Iterate over subdirectories in the vector_store and aggregate results
         if not os.path.isdir(self.index_path):
             return []
 
-        aggregated: List = []
+        # Gather candidate document directories
+        candidate_entries: List[str] = []
         for entry in os.listdir(self.index_path):
             doc_dir = os.path.join(self.index_path, entry)
-            if not os.path.isdir(doc_dir):
-                continue
+            if os.path.isdir(doc_dir):
+                candidate_entries.append(entry)
+
+        # Optionally restrict to a provided subset
+        if document_ids:
+            allowed = set(document_ids)
+            candidate_entries = [e for e in candidate_entries if e in allowed]
+
+        aggregated: List = []
+        for entry in candidate_entries:
+            doc_dir = os.path.join(self.index_path, entry)
             faiss_path = os.path.join(doc_dir, "index.faiss")
             meta_path = os.path.join(doc_dir, "index.pkl")
             if not (os.path.exists(faiss_path) and os.path.exists(meta_path)):
@@ -181,24 +197,14 @@ class EmbeddingsService:
                 store = FAISS.load_local(
                     doc_dir, self.embeddings, allow_dangerous_deserialization=True
                 )
-                # Get the similarity search with scores
                 docs_with_scores = store.similarity_search_with_score(query, k=k)
                 aggregated.extend(docs_with_scores)
             except Exception as exc:
-                logging.error(f"[EmbeddingsService] Failed loading index at {doc_dir}: {exc}")
-
-        # # Normalize scores to [0,1] and get global top-k
-        # def _normalize(score: float) -> float:
-        #     try:
-        #         s = float(score)
-        #     except Exception:
-        #         return 0.0
-        #     # If score >= 0 assume it's a distance (smaller is better)
-        #     if s >= 0:
-        #         return 1.0 / (1.0 + s)
-        #     # Otherwise assume cosine similarity in [-1, 1]
-        #     return max(0.0, min(1.0, (s + 1.0) / 2.0))
+                logging.error(
+                    f"[EmbeddingsService] Failed loading index at {doc_dir}: {exc}"
+                )
 
         aggregated.sort(key=lambda pair: pair[1])  # ascending
         top_k = aggregated[:k]
         return [doc.page_content for doc, _ in top_k]
+

@@ -14,6 +14,7 @@ class QuestionRequest(BaseModel):
     question: str
     llm_provider: str = "openai"
     model: Optional[str] = None
+    document_ids: Optional[List[str]] = None
 
 class Model_Options:
     OPENAI = ["gpt-4.1-mini", "gpt-4.1-turbo", "gpt-4.1-nano"]
@@ -74,8 +75,11 @@ def prompt_llm_rag(request: QuestionRequest):
     ):
         llm_service = LLMService(request.llm_provider, request.model)
     
-    # Get relevant documents using embeddings
-    relevant_docs = embeddings_service.similarity_search(request.question)
+    # Get relevant documents using embeddings, optionally constrained to uploaded docs
+    relevant_docs = embeddings_service.similarity_search(
+        request.question,
+        document_ids=request.document_ids,
+    )
     
     # Generate answer using LLM
     result = llm_service.generate_answer(request.question, relevant_docs)

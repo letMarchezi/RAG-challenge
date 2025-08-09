@@ -20,19 +20,29 @@ def upload_documents(files_bytes_and_names: list[tuple[str, bytes]]) -> dict:
     response = requests.post(UPLOAD_FILE_ENDPOINT, files=files)
     return response.json()
 
-def ask_question(question: str, llm_provider: str = "openai", model: str | None = None) -> dict:
+def ask_question(
+    question: str,
+    llm_provider: str = "openai",
+    model: str | None = None,
+    document_ids: list[str] | None = None,
+) -> dict:
     """Send question to the API
-    
+
     Args:
         question: User's question
         llm_provider: The LLM provider to use
-        
+        model: Optional model name for the selected provider
+        document_ids: Optional list of document directory stems to restrict
+            retrieval to (e.g., those uploaded in the current session)
+
     Returns:
         Dict containing answer and references
     """
     payload = {"question": question, "llm_provider": llm_provider}
     if model:
         payload["model"] = model
+    if document_ids:
+        payload["document_ids"] = document_ids
     response = requests.post(QUESTION_ENDPOINT, json=payload)
     return response.json()
 
