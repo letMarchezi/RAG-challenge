@@ -52,6 +52,9 @@ docker-compose up --build
 ```
 curl -F "files=@/Users/<you>/Documents/a.pdf" -F "files=@/Users/<you>/Documents/b.pdf" http://localhost:8000/documents | cat
 ```
+<img width="1700" height="2200" alt="ex_2-1" src="https://github.com/user-attachments/assets/9ee28d7a-3b6e-4f38-9687-2b8c74b16a96" />
+<img width="1700" height="2200" alt="ex_2-2" src="https://github.com/user-attachments/assets/94aa1d14-6125-4148-8f6f-8c4ec2c803eb" />
+
 
 Sample response for /documents (truncated):
 ```json
