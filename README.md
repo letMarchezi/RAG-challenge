@@ -9,7 +9,7 @@ Available models are set on `routes/main.py` in `Model_Options`.
 
 ### Project layout
 - `api/`
-  - `main.py`: FastAPI app wiring and CORS
+  - `main.py`: FastAPI app wiring
   - `routes/main.py`: Endpoints (`/documents`, `/question`, `/models`, `/health`)
   - `services/embeddings.py`: PDF parsing (pypdf), chunking, embeddings (OpenAI), FAISS storage (per-file)
   - `services/llm.py`: LLM abstraction (OpenAI, Gemini)
@@ -52,11 +52,58 @@ docker-compose up --build
 ```
 curl -F "files=@/Users/<you>/Documents/a.pdf" -F "files=@/Users/<you>/Documents/b.pdf" http://localhost:8000/documents | cat
 ```
+
+Sample response for /documents (truncated):
+```json
+{
+  "message": "Documents processed",
+  "processed": 2,
+  "skipped": 0,
+  "total": 2,
+  "total_chunks": 412,
+  "results": [
+    {
+      "filename": "a.pdf",
+      "message": "Document processed successfully",
+      "skipped": false,
+      "document_id": "a",
+      "documents_indexed": 10,
+      "total_chunks": 230
+    },
+    {
+      "filename": "b.pdf",
+      "message": "Document processed successfully",
+      "skipped": false,
+      "document_id": "b",
+      "documents_indexed": 8,
+      "total_chunks": 182
+    }
+  ]
+}
+```
 - Ask a question via curl:
 ```
-curl -H "Content-Type: application/json" \
-  -d '{"question":"What is X?","llm_provider":"openai"}' \
-  http://localhost:8000/question | cat
+curl -H "Content-Type: application/json" -d '{
+  "question":"What maintenance is recommended?",
+  "llm_provider":"openai",
+  "document_ids":["lb5001","weg-cestari-manual-iom-guia-consulta-rapida-50111652-pt-en-es-web"]
+}' http://localhost:8000/question | cat
+```
+
+Sample response (truncated):
+```json
+{
+  "answer": "A manutenção preventiva periódica deve ser realizada por pessoas qualificadas...",
+  "references": "A manutenção preventiva periódica visa principalmente verificar as condições...",
+  "citations": [
+    {
+      "document_id": "weg-cestari-manual-iom-guia-consulta-rapida-50111652-pt-en-es-web",
+      "page": 21,
+      "score": 1.1511561870574951,
+      "snippet": "A manutenção preventiva periódica visa principalmente verificar as condições..."
+    }
+  ]
+}
 ```
 
 ### Using the system
@@ -65,8 +112,8 @@ curl -H "Content-Type: application/json" \
    - Each file is indexed under `vector_store/<filename-stem>/index.faiss|index.pkl`
    - Re-uploading the same filename is skipped (no reprocessing)
 3) Choose provider (OpenAI/Gemini) and model (from `/models`)
-4) Ask a question; the system retrieves similar chunks across all indexed files and generates an answer with references
-   - The frontend shows the API response time next to the answer
+4) Ask a question; the system retrieves similar chunks across all indexed files and generates an answer with references and citations
+   - The frontend shows the API response time next to the answer and a Citations panel with file (document_id), page, score and snippet preview
 
 ### API endpoints
 - `GET /health` → `{ "status": "ok" }`
@@ -76,13 +123,16 @@ curl -H "Content-Type: application/json" \
   - Returns summary: processed, skipped, total_chunks, per-file results
 - `POST /question` (JSON)
   - `{ "question": "...", "llm_provider": "openai|gemini", "model": "optional", "document_ids": ["<file-stem>", ...] }`
-  - When `document_ids` is provided, retrieval searches only those per-file FAISS indexes. The frontend automatically passes the IDs of files uploaded in the current session so questions are restricted to those uploads.
-  - Returns `{ "answer": str, "references": [str] }`
+  - `document_ids` is required. The frontend always sends the IDs of files uploaded in the current session (may be an empty array if none).
+  - Returns a structured JSON object:
+    - `answer` (string)
+    - `references` (string with supporting excerpt text)
+    - `citations` (array of objects): `{ document_id: str, page: int|null, score: number, snippet: str }`
 
 ### Implementation details
 - Chunking: RecursiveCharacterTextSplitter with chunk_size=1400 and chunk_overlap=300 (length counted via Python's len)
 - PDF parsing: pypdf (in-memory); scanned PDFs may yield no text (OCR not included)
-- Embeddings: OpenAI text-embedding-3-small via official SDK, batched requests for efficiency
+- Embeddings: OpenAI `text-embedding-3-small` via official SDK, batched requests for efficiency
 - Vector store: FAISS per file; aggregated retrieval across all stored indexes
 
 ### Design decisions and good practices
@@ -92,7 +142,8 @@ curl -H "Content-Type: application/json" \
 - Session-scoped retrieval: The frontend records the document IDs uploaded in the current session and passes them to the API so retrieval can be constrained to those documents, improving relevance and performance.
 - Top-k retrieval: Retrieval collects candidates across per-file indexes, sorts by similarity score, and returns the top-k results (default k=5) to balance relevance, token usage, and latency.
 - Input hygiene and batching: Text is sanitized before embedding; empty chunks are filtered out; embedding requests are sent in batches to reduce API overhead.
-- Structured prompting: Answers are requested with a consistent structure (answer plus references), improving reliability of downstream parsing and display.
+- Structured outputs: The LLM is instructed to return strict JSON with `answer`, `references`, and `citations`. The backend safely parses the JSON and falls back gracefully if needed.
+- Propagated retrieval metadata: Each retrieved chunk carries `document_id`, `page`, and `score`. Minimal metadata is embedded into the prompt so the model can ground citations; the same metadata is returned in `citations`.
 - Persistence: FAISS data is mounted to `./vector_store` and persists across container restarts for reproducibility and faster startup.
 
 ### Next steps
