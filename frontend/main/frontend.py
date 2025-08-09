@@ -3,11 +3,71 @@ import streamlit as st
 from routers import get_available_models, upload_documents, ask_question
 import logging
 import time
-st.set_page_config(page_title="RAG System", layout="wide")
+st.set_page_config(page_title="RAG System")
 
-st.title("Document Q&A System:")
+# Minimal CSS: font, title color, button color, and input background
+st.markdown(
+    """
+<style>
+/* Global font */
+html, body, [data-testid="stAppViewContainer"] {
+  font-family: "Helvetica Neue", Helvetica, Arial;
+}
+
+/* Title and header colors */
+.block-container { padding-top: 1rem; }
+h1, .stMarkdown h1 { color: #334155; font-weight: 700; margin-top: 0.25rem; }
+h2, .stMarkdown h2, h3, .stMarkdown h3 { color: #2563EB; }
+
+/* Buttons: blue background, white text */
+.stButton > button {
+  background-color: #2563EB !important;
+  color: #FFFFFF !important;
+  border: none;
+  border-radius: 8px;
+  padding: 0.5rem 1rem;
+}
+.stButton > button:hover { background-color: #1D4ED8 !important; }
+
+/* Inputs: darker background and blue outline on focus */
+:root { --field-bg: #E5E9F2; /* darker than before */ }
+.stTextInput > div > div,
+.stTextArea > div > div,
+.stSelectbox > div > div,
+[data-testid="stFileUploadDropzone"] {
+  background-color: var(--field-bg) !important;
+  border: 1px solid #CBD5E1; /* slate-300 */
+  border-radius: 8px;
+}
+
+/* Blue edges on focus/hover */
+.stTextInput > div > div:focus-within,
+.stTextArea > div > div:focus-within,
+.stSelectbox > div > div:hover,
+.stSelectbox > div > div:focus-within,
+[data-testid="stFileUploadDropzone"]:hover {
+  border-color: #2563EB !important;
+  box-shadow: 0 0 0 1px #2563EB33;
+}
+
+/* Ensure the file uploader's "Browse files" button is blue */
+[data-testid="stFileUploadDropzone"] button {
+  background-color: #2563EB !important;
+  color: #FFFFFF !important;
+  border: none !important;
+  border-radius: 6px;
+}
+
+/* Keep inner inputs transparent so the container color shows */
+.stTextInput input, .stTextArea textarea { background: transparent !important; }
+</style>
+""",
+    unsafe_allow_html=True,
+)
+
+st.title("Document Q&A System")
 st.caption("Upload the desired Pdf files, process to generate embeddings, select the LLM provider and model, and ask questions about the documents.")
-st.caption("Developed by Leticia Bossatto Marchezi")
+
 # Initialize session state for storing upload status
 if 'documents_uploaded' not in st.session_state:
     st.session_state.documents_uploaded = False
@@ -93,3 +153,5 @@ if question:
                     if result.get("references"):
                         with st.expander(f"References"):
                             st.write(result["references"])
+                            
+st.caption("Developed by Leticia Bossatto Marchezi")

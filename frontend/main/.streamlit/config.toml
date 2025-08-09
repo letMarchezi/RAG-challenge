@@ -1,0 +1,7 @@
+[theme]
+primaryColor = "#2563EB"            # blue-600
+backgroundColor = "#FFFFFF"          # white
+secondaryBackgroundColor = "#F1F5F9" # slate-100 (more contrast for inputs)
+textColor = "#0F172A"                # slate-900
+
+
