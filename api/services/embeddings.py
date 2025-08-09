@@ -252,5 +252,6 @@ class EmbeddingsService:
                     "score": float(score) if hasattr(score, "__float__") else score,
                 }
             )
+            logging.info(f"[EmbeddingsService] structured: {structured}")
 
         return structured

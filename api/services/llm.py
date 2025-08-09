@@ -29,7 +29,7 @@ class LLMService:
                 "- answer (string) \n- references (string with supporting excerpt text) \n- citations (array of objects with keys: document_id, page, score, snippet).\n"
                 "Do not include markdown, code fences, or extra text.\n\n"
                 "Context (each item may include document_id and page metadata):\n{context}\n\n"
-                "Question: {question}\n"
+                "Answer the following question: {question}\n"
             ),
             input_variables=["context", "question"],
         )
