@@ -1,0 +1,26 @@
+version: '3.8'
+services:
+  api:
+    container_name: api_rag
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: uvicorn main:app --host 0.0.0.0 --reload --lifespan on --workers 1
+    volumes:
+      - ./api:/api
+      - ./vector_store:/api/vector_store
+    ports:
+      - 8000:8000
+    environment:
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+  frontend_rag:
+    container_name: frontend_rag
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile_frontend
+    command: streamlit run frontend.py --server.port=8501 --server.address=0.0.0.0 --logger.level=debug
+    ports:
+      - "8501:8501"
+    depends_on:
+      - api

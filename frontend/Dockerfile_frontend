@@ -1,0 +1,18 @@
+# Use uma imagem base com Python pré-instalado
+FROM python:3.12
+
+# Define o diretório de trabalho dentro do contêiner
+WORKDIR /frontend/main
+
+
+# Copia o arquivo de requisitos para o contêiner
+COPY ./main /frontend/main
+
+# Instala as dependências do Streamlit
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Define a porta do Streamlit
+EXPOSE 8501
+
+# Comando para iniciar o Streamlit
+CMD ["streamlit", "run", "frontend.py", "--server.port=8501", "--server.address=0.0.0.0"]
